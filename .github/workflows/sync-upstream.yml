@@ -1,0 +1,174 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Every Sunday at midnight UTC
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "Hyperspace"
+          git config user.email "superagent@hyperspace.ng"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/hotovo/aider-desk.git || true
+          git fetch upstream
+
+      - name: Check for upstream changes
+        id: check
+        run: |
+          UPSTREAM_COMMITS=$(git rev-list HEAD..upstream/main --count)
+          echo "upstream_commits=$UPSTREAM_COMMITS" >> $GITHUB_OUTPUT
+          if [ "$UPSTREAM_COMMITS" -gt 0 ]; then
+            echo "has_updates=true" >> $GITHUB_OUTPUT
+            echo "Found $UPSTREAM_COMMITS new commits from upstream"
+          else
+            echo "has_updates=false" >> $GITHUB_OUTPUT
+            echo "No new commits from upstream"
+          fi
+
+      - name: Backup branding files
+        if: steps.check.outputs.has_updates == 'true'
+        run: |
+          mkdir -p /tmp/branding-backup
+          cp -r build/icon.* /tmp/branding-backup/ 2>/dev/null || true
+          cp -r resources/icon.* /tmp/branding-backup/ 2>/dev/null || true
+          cp package.json /tmp/branding-backup/package.json.bak
+          echo "Branding files backed up"
+
+      - name: Attempt merge
+        id: merge
+        if: steps.check.outputs.has_updates == 'true'
+        run: |
+          if git merge upstream/main --no-edit; then
+            echo "merge_success=true" >> $GITHUB_OUTPUT
+            echo "Merge successful"
+          else
+            echo "merge_success=false" >> $GITHUB_OUTPUT
+            echo "Merge conflicts detected"
+            git merge --abort
+          fi
+
+      - name: Restore branding files
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+        run: |
+          # Restore icons
+          cp /tmp/branding-backup/icon.png build/icon.png 2>/dev/null || true
+          cp /tmp/branding-backup/icon.ico build/icon.ico 2>/dev/null || true
+          cp /tmp/branding-backup/icon.icns build/icon.icns 2>/dev/null || true
+          cp /tmp/branding-backup/icon.png resources/icon.png 2>/dev/null || true
+          cp /tmp/branding-backup/icon.ico resources/icon.ico 2>/dev/null || true
+          
+          # Restore branding in package.json
+          UPSTREAM_VERSION=$(node -p "require('./package.json').version")
+          cat package.json | \
+            jq --arg ver "${UPSTREAM_VERSION}-hyperspace" \
+               '.name = "superagent" | 
+                .version = $ver | 
+                .description = "SuperAgent desktop application" | 
+                .author = "Hyperspace <superagent@hyperspace.ng>" | 
+                .homepage = "https://hyperspace.ng"' > package.json.tmp
+          mv package.json.tmp package.json
+          
+          echo "Branding restored with version: ${UPSTREAM_VERSION}-hyperspace"
+
+      - name: Restore branding in source files
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+        run: |
+          # Restore key branding strings
+          sed -i 's/<title>AiderDesk<\/title>/<title>SuperAgent<\/title>/g' src/renderer/index.html || true
+          sed -i 's/Starting AiderDesk/Starting SuperAgent/g' src/renderer/progress.html || true
+          sed -i 's/<Section title="AiderDesk">/<Section title="SuperAgent">/g' src/renderer/src/components/settings/AboutSettings.tsx || true
+          sed -i "s/AIDER_DESK_TITLE = 'AiderDesk'/AIDER_DESK_TITLE = 'SuperAgent'/g" src/main/constants.ts || true
+          sed -i "s|AIDER_DESK_WEBSITE = 'https://aiderdesk.hotovo.com'|AIDER_DESK_WEBSITE = 'https://hyperspace.ng'|g" src/main/constants.ts || true
+          sed -i 's/com.hotovo.aider-desk/ng.hyperspace.superagent/g' src/main/index.ts || true
+          
+          echo "Source file branding restored"
+
+      - name: Commit changes
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            UPSTREAM_VERSION=$(node -p "require('./package.json').version")
+            git commit -m "Sync with upstream and restore SuperAgent branding (${UPSTREAM_VERSION})"
+          fi
+
+      - name: Push changes
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+        run: |
+          git push origin main
+
+      - name: Create issue on merge conflict
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_TOKEN }}
+          script: |
+            const title = '⚠️ Upstream Sync Failed - Manual Intervention Required';
+            const body = `## Upstream Sync Conflict
+            
+            The automatic sync from [hotovo/aider-desk](https://github.com/hotovo/aider-desk) failed due to merge conflicts.
+            
+            ### Action Required
+            
+            Please manually resolve the conflicts:
+            
+            \`\`\`bash
+            git fetch upstream
+            git merge upstream/main
+            # Resolve conflicts
+            # Restore branding
+            git push origin main
+            \`\`\`
+            
+            ### Upstream Changes
+            
+            Check the [upstream commits](https://github.com/hotovo/aider-desk/commits/main) for recent changes.
+            
+            ---
+            *This issue was automatically created by the sync workflow.*`;
+            
+            // Check if similar issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'sync-conflict'
+            });
+            
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['sync-conflict']
+              });
+            }
+
+      - name: Summary
+        run: |
+          echo "## Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check.outputs.has_updates }}" == "false" ]; then
+            echo "✅ No upstream updates available" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.merge.outputs.merge_success }}" == "true" ]; then
+            echo "✅ Successfully synced with upstream and restored branding" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Merge conflicts detected - manual intervention required" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,118 @@
+name: Check Upstream Releases
+
+on:
+  schedule:
+    - cron: '0 12 * * *'  # Daily at noon UTC
+  workflow_dispatch:
+
+jobs:
+  check-releases:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get current version
+        id: current
+        run: |
+          CURRENT=$(node -p "require('./package.json').version.split('-')[0]")
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT"
+
+      - name: Get upstream latest release
+        id: upstream
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/hotovo/aider-desk/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Upstream version: $LATEST"
+
+      - name: Compare versions
+        id: compare
+        run: |
+          CURRENT="${{ steps.current.outputs.version }}"
+          UPSTREAM="${{ steps.upstream.outputs.version }}"
+          
+          if [ "$CURRENT" != "$UPSTREAM" ]; then
+            echo "new_release=true" >> $GITHUB_OUTPUT
+            echo "New upstream release detected: $UPSTREAM (current: $CURRENT)"
+          else
+            echo "new_release=false" >> $GITHUB_OUTPUT
+            echo "Already up to date"
+          fi
+
+      - name: Create issue for new release
+        if: steps.compare.outputs.new_release == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_TOKEN }}
+          script: |
+            const currentVersion = '${{ steps.current.outputs.version }}';
+            const upstreamVersion = '${{ steps.upstream.outputs.version }}';
+            
+            const title = `🚀 New Upstream Release Available: v${upstreamVersion}`;
+            const body = `## New Upstream Release Detected
+            
+            A new version of AiderDesk has been released upstream.
+            
+            | | Version |
+            |---|---|
+            | **Current** | ${currentVersion} |
+            | **Upstream** | ${upstreamVersion} |
+            
+            ### Options
+            
+            1. **Automatic Sync**: Run the "Sync Upstream" workflow manually
+            2. **Manual Sync**: 
+               \`\`\`bash
+               git fetch upstream
+               git merge upstream/main
+               # Resolve conflicts and restore branding
+               git push origin main
+               \`\`\`
+            
+            ### Links
+            
+            - [Upstream Release Notes](https://github.com/hotovo/aider-desk/releases/tag/v${upstreamVersion})
+            - [Upstream Changelog](https://github.com/hotovo/aider-desk/blob/main/CHANGELOG.md)
+            
+            ---
+            *This issue was automatically created by the release check workflow.*`;
+            
+            // Check if similar issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-release'
+            });
+            
+            const existingIssue = issues.data.find(i => i.title.includes(upstreamVersion));
+            
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['upstream-release']
+              });
+              console.log('Issue created for new release');
+            } else {
+              console.log('Issue already exists for this release');
+            }
+
+      - name: Summary
+        run: |
+          echo "## Release Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| | Version |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Current | ${{ steps.current.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Upstream | ${{ steps.upstream.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.compare.outputs.new_release }}" == "true" ]; then
+            echo "🚀 **New release available!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Already up to date" >> $GITHUB_STEP_SUMMARY
+          fi
