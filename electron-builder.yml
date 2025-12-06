@@ -1,5 +1,5 @@
-appId: com.hotovo.aider-desk
-productName: aider-desk
+appId: ng.hyperspace.superagent
+productName: SuperAgent
 directories:
   buildResources: build
 files:
@@ -20,7 +20,7 @@ extraResources:
       - '**/*'
 beforePack: scripts/before-pack.js
 win:
-  executableName: aider-desk
+  executableName: superagent
   icon: resources/icon.png
   extraResources:
     - from: ./resources/win
@@ -57,7 +57,7 @@ linux:
     - AppImage
     - deb
     - rpm
-  maintainer: Hotovo
+  maintainer: Hyperspace
   category: Utility
   extraResources:
     - from: ./resources/linux

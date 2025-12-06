@@ -233,7 +233,7 @@ const initWindow = async (store: Store): Promise<BrowserWindow> => {
 
 app.whenReady().then(async () => {
   try {
-    electronApp.setAppUserModelId('com.hotovo.aider-desk');
+    electronApp.setAppUserModelId('ng.hyperspace.superagent');
 
     if (!HEADLESS_MODE) {
       // Setup custom menu only in GUI mode
