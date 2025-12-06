@@ -2,6 +2,7 @@ name: Release
 
 on:
   workflow_dispatch: # Manual trigger
+  workflow_call: # Called by sync workflow
 
 jobs:
   release-linux:
@@ -151,13 +152,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          # Get the draft release tag
           RELEASE_TAG=$(gh release list --limit 1 --json tagName,isDraft --jq '.[] | select(.isDraft == true) | .tagName')
           echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
 
       - name: Upload combined yml to release
+        if: steps.find-release.outputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          # Upload the combined latest-mac.yml to the GitHub release
           gh release upload ${{ steps.find-release.outputs.release_tag }} latest-mac.yml --clobber

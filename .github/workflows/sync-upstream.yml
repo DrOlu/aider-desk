@@ -8,6 +8,9 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    outputs:
+      synced: ${{ steps.merge.outputs.merge_success }}
+      version: ${{ steps.version.outputs.version }}
     
     steps:
       - name: Checkout fork
@@ -113,6 +116,13 @@ jobs:
         run: |
           git push origin main
 
+      - name: Get version for build
+        id: version
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Create issue on merge conflict
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'false'
         uses: actions/github-script@v7
@@ -143,7 +153,6 @@ jobs:
             ---
             *This issue was automatically created by the sync workflow.*`;
             
-            // Check if similar issue already exists
             const issues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -169,6 +178,51 @@ jobs:
             echo "✅ No upstream updates available" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ steps.merge.outputs.merge_success }}" == "true" ]; then
             echo "✅ Successfully synced with upstream and restored branding" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🚀 Build will be triggered automatically" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Merge conflicts detected - manual intervention required" >> $GITHUB_STEP_SUMMARY
           fi
+
+  build:
+    needs: sync
+    if: needs.sync.outputs.synced == 'true'
+    uses: ./.github/workflows/release.yml
+    secrets: inherit
+    
+  publish:
+    needs: [sync, build]
+    if: needs.sync.outputs.synced == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Wait for release assets
+        run: sleep 30
+
+      - name: Find and publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          # Get the latest draft release
+          RELEASE_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" | \
+            jq -r '[.[] | select(.draft == true)] | .[0].id')
+          
+          if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
+            echo "Publishing release ID: $RELEASE_ID"
+            curl -s -X PATCH \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID" \
+              -d '{"draft":false}'
+            echo "✅ Release published!"
+          else
+            echo "No draft release found to publish"
+          fi
+
+      - name: Summary
+        run: |
+          echo "## Build & Publish Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Build completed for version: ${{ needs.sync.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Release published automatically" >> $GITHUB_STEP_SUMMARY
