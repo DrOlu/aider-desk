@@ -18,10 +18,10 @@ export const AboutSettings = ({ settings, setSettings }: Props) => {
   const { versions, checkForUpdates } = useVersions();
   const api = useApi();
 
-  const isSuperAgentUpdateAvailable =
-    !versions?.superAgentDownloadProgress && versions?.superAgentAvailableVersion && versions.superAgentAvailableVersion !== versions.superAgentCurrentVersion;
+  const isAiderDeskUpdateAvailable =
+    !versions?.aiderDeskDownloadProgress && versions?.aiderDeskAvailableVersion && versions.aiderDeskAvailableVersion !== versions.aiderDeskCurrentVersion;
   const isAiderUpdateAvailable = versions?.aiderAvailableVersion && versions.aiderAvailableVersion !== versions.aiderCurrentVersion;
-  const isDownloading = typeof versions?.superAgentDownloadProgress === 'number';
+  const isDownloading = typeof versions?.aiderDeskDownloadProgress === 'number';
 
   const openLogsDirectory = async () => {
     try {
@@ -34,7 +34,7 @@ export const AboutSettings = ({ settings, setSettings }: Props) => {
 
   const handleDownloadUpdate = async () => {
     try {
-      await api.downloadLatestSuperAgent();
+      await api.downloadLatestAiderDesk();
     } catch (error) {
       toast.error(t('settings.about.downloadError'));
       // eslint-disable-next-line no-console
@@ -55,34 +55,34 @@ export const AboutSettings = ({ settings, setSettings }: Props) => {
         <div className="p-6 space-y-2">
           <div className="flex  text-sm text-text-primary gap-2">
             <span>{t('settings.about.version')}:</span>
-            <span>{versions ? (versions.superAgentCurrentVersion ?? t('settings.about.notAvailable')) : t('common.loading')}</span>
+            <span>{versions ? (versions.aiderDeskCurrentVersion ?? t('settings.about.notAvailable')) : t('common.loading')}</span>
           </div>
           <div className="pt-2">
             <Checkbox
               label={t('settings.about.downloadAutomatically')}
-              checked={settings.superAgentAutoUpdate}
-              onChange={(checked) => setSettings({ ...settings, superAgentAutoUpdate: checked })}
+              checked={settings.aiderDeskAutoUpdate}
+              onChange={(checked) => setSettings({ ...settings, aiderDeskAutoUpdate: checked })}
             />
           </div>
           {isDownloading && (
             <div className="pt-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-warning-light whitespace-nowrap">
-                  {t('settings.about.downloadingUpdate')}: {versions?.superAgentDownloadProgress?.toFixed(0)}%
+                  {t('settings.about.downloadingUpdate')}: {versions?.aiderDeskDownloadProgress?.toFixed(0)}%
                 </span>
               </div>
             </div>
           )}
-          {versions?.superAgentNewVersionReady ? (
+          {versions?.aiderDeskNewVersionReady ? (
             <div className="pt-2">
-              <p className="text-xs text-warning-light">{t('settings.about.newSuperAgentVersionReady')}</p>
+              <p className="text-xs text-warning-light">{t('settings.about.newAiderDeskVersionReady')}</p>
             </div>
           ) : (
-            isSuperAgentUpdateAvailable &&
+            isAiderDeskUpdateAvailable &&
             !isDownloading && (
               <div className="flex justify-between items-center pt-2">
                 <span className="text-xs text-warning-light">
-                  {t('settings.about.updateAvailable')} ({versions?.superAgentAvailableVersion})
+                  {t('settings.about.updateAvailable')} ({versions?.aiderDeskAvailableVersion})
                 </span>
                 <Button onClick={handleDownloadUpdate} size="sm" variant="outline">
                   {t('settings.about.downloadUpdate')}
