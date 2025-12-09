@@ -2,6 +2,10 @@
 
 ## [UNRELEASED]
 
+- fixed issue with missing reasoning_content field when using deepseek-reasoner
+
+## [0.43.0]
+
 - selected agent profile and models are now stored per task
 - recent projects are now correctly added when closing a project
 - updated default models for providers

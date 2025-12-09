@@ -1,0 +1,130 @@
+name: Update AI SDK Dependencies
+
+on:
+  schedule:
+    # Run at midnight every day (UTC)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-dependencies:
+    name: Update AI SDK Dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.17.0'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Update AI SDK dependencies
+        run: |
+          # Define the AI SDK packages to update
+          packages=(
+            "ai"
+            "@ai-sdk/provider"
+            "@ai-sdk/amazon-bedrock"
+            "@ai-sdk/anthropic"
+            "@ai-sdk/azure"
+            "@ai-sdk/cerebras"
+            "@ai-sdk/deepseek"
+            "@ai-sdk/google"
+            "@ai-sdk/google-vertex"
+            "@ai-sdk/groq"
+            "@ai-sdk/openai"
+            "@openrouter/ai-sdk-provider"
+            "@requesty/ai-sdk"
+            "ollama-ai-provider-v2"
+          )
+
+          # Create changelog in memory (not as file)
+          changelog="# AI SDK Dependencies Update\n\n| Package | From | To |\n|---------|------|----|"
+          has_updates=false
+
+          # Update each package to latest stable version
+          for package in "${packages[@]}"; do
+            echo "Checking $package..."
+            
+            # Get current version from package.json
+            current_version=$(cat package.json | jq -r ".dependencies[\"$package\"] // empty")
+            if [ -z "$current_version" ]; then
+              echo "Package $package not found in dependencies, skipping..."
+              continue
+            fi
+            
+            # Get latest version
+            latest_version=$(npm view $package version)
+            
+            echo "Current: $current_version, Latest: $latest_version"
+            
+            # Normalize versions for comparison (remove caret)
+            current_clean=$(echo $current_version | sed 's/\^//')
+            latest_clean=$(echo $latest_version | sed 's/\^//')
+            
+            # Update if different
+            if [ "$current_clean" != "$latest_clean" ]; then
+              echo "Updating $package from $current_version to $latest_version"
+              npm install $package@$latest_version
+              
+              # Add to changelog
+              changelog="$changelog\n| $package | $current_version | $latest_version |"
+              has_updates=true
+            else
+              echo "$package is already up to date"
+            fi
+          done
+
+          # Save changelog to environment variable for PR (only if there are updates)
+          if [ "$has_updates" = true ]; then
+            echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+            echo -e "$changelog" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          else
+            echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+            echo "No AI SDK dependencies needed updates." >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+
+      - name: Check for changes
+        id: verify-changed-files
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.verify-changed-files.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update AI SDK dependencies to latest versions"
+          title: "chore: update AI SDK dependencies"
+          body: |
+            ## Automated AI SDK Dependencies Update
+            
+            This PR updates AI SDK packages to their latest stable versions.
+            
+            ${{ env.CHANGELOG }}
+            
+            ---
+            
+            🤖 This PR was created automatically by the [Update AI SDK Dependencies](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow.
+          branch: chore/update-ai-sdk-dependencies
+          delete-branch: true
+          labels: |
+            dependencies
+            automated
+          assignees: ${{ github.actor }}
