@@ -2,14 +2,14 @@ name: Sync Upstream
 
 on:
   schedule:
-    - cron: '0 0 * * 0'  # Every Sunday at midnight UTC
+    - cron: '0 */6 * * *'  # Every 6 hours for faster updates
   workflow_dispatch:  # Manual trigger
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     outputs:
-      synced: ${{ steps.merge.outputs.merge_success }}
+      synced: ${{ steps.final-status.outputs.synced }}
       version: ${{ steps.version.outputs.version }}
     
     steps:
@@ -23,6 +23,11 @@ jobs:
         run: |
           git config user.name "Hyperspace"
           git config user.email "superagent@hyperspace.ng"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Add upstream remote
         run: |
@@ -46,142 +51,310 @@ jobs:
         if: steps.check.outputs.has_updates == 'true'
         run: |
           mkdir -p /tmp/branding-backup
-          cp -r build/icon.* /tmp/branding-backup/ 2>/dev/null || true
-          cp -r resources/icon.* /tmp/branding-backup/ 2>/dev/null || true
-          cp package.json /tmp/branding-backup/package.json.bak
+          
+          # Backup icons
+          cp build/icon.png /tmp/branding-backup/ 2>/dev/null || true
+          cp build/icon.ico /tmp/branding-backup/ 2>/dev/null || true
+          cp build/icon.icns /tmp/branding-backup/ 2>/dev/null || true
+          cp resources/icon.png /tmp/branding-backup/resources-icon.png 2>/dev/null || true
+          cp resources/icon.ico /tmp/branding-backup/resources-icon.ico 2>/dev/null || true
+          
+          # Backup current package.json for reference
+          cp package.json /tmp/branding-backup/package.json.current
+          
           echo "Branding files backed up"
 
-      - name: Attempt merge
+      - name: Attempt standard merge
         id: merge
         if: steps.check.outputs.has_updates == 'true'
         run: |
           if git merge upstream/main --no-edit; then
             echo "merge_success=true" >> $GITHUB_OUTPUT
-            echo "Merge successful"
+            echo "merge_method=standard" >> $GITHUB_OUTPUT
+            echo "Standard merge successful"
           else
             echo "merge_success=false" >> $GITHUB_OUTPUT
-            echo "Merge conflicts detected"
-            git merge --abort
+            echo "Standard merge failed, will attempt conflict resolution"
+          fi
+
+      - name: Resolve conflicts automatically
+        id: resolve-conflicts
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'false'
+        run: |
+          echo "Attempting automatic conflict resolution..."
+          
+          # Get list of conflicted files
+          CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
+          echo "Conflicted files: $CONFLICTED_FILES"
+          
+          RESOLVED_ALL=true
+          
+          for file in $CONFLICTED_FILES; do
+            echo "Processing conflict in: $file"
+            
+            case "$file" in
+              package.json)
+                echo "Resolving package.json conflict..."
+                
+                # Accept upstream version first
+                git checkout --theirs package.json
+                
+                # Get upstream version
+                UPSTREAM_VERSION=$(node -p "require('./package.json').version")
+                echo "Upstream version: $UPSTREAM_VERSION"
+                
+                # Apply branding overrides using Node.js
+                node -e "
+                  const fs = require('fs');
+                  const pkg = require('./package.json');
+                  
+                  pkg.name = 'superagent';
+                  pkg.version = '${UPSTREAM_VERSION}'.replace(/-dev$/, '') + '-hyperspace';
+                  pkg.description = 'SuperAgent desktop application';
+                  pkg.author = 'Hyperspace <superagent@hyperspace.ng>';
+                  pkg.homepage = 'https://hyperspace.ng';
+                  pkg.repository = {
+                    type: 'git',
+                    url: 'https://github.com/DrOlu/aider-desk.git'
+                  };
+                  
+                  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+                  console.log('package.json rebranded to version:', pkg.version);
+                "
+                
+                git add package.json
+                echo "package.json conflict resolved"
+                ;;
+                
+              package-lock.json)
+                echo "Resolving package-lock.json conflict..."
+                # Accept upstream and regenerate later if needed
+                git checkout --theirs package-lock.json 2>/dev/null || git rm package-lock.json 2>/dev/null || true
+                git add package-lock.json 2>/dev/null || true
+                echo "package-lock.json conflict resolved"
+                ;;
+                
+              *.md|*.txt|CHANGELOG*|LICENSE*)
+                echo "Resolving $file by accepting upstream..."
+                git checkout --theirs "$file"
+                git add "$file"
+                ;;
+                
+              *.json)
+                echo "Resolving $file by accepting upstream..."
+                git checkout --theirs "$file"
+                git add "$file"
+                ;;
+                
+              src/renderer/index.html)
+                echo "Resolving index.html with branding..."
+                git checkout --theirs "$file"
+                sed -i 's/<title>AiderDesk<\/title>/<title>SuperAgent<\/title>/g' "$file"
+                git add "$file"
+                ;;
+                
+              src/renderer/progress.html)
+                echo "Resolving progress.html with branding..."
+                git checkout --theirs "$file"
+                sed -i 's/Starting AiderDesk/Starting SuperAgent/g' "$file"
+                sed -i 's/AiderDesk/SuperAgent/g' "$file"
+                git add "$file"
+                ;;
+                
+              src/main/constants.ts)
+                echo "Resolving constants.ts with branding..."
+                git checkout --theirs "$file"
+                sed -i "s/AIDER_DESK_TITLE = 'AiderDesk'/AIDER_DESK_TITLE = 'SuperAgent'/g" "$file"
+                sed -i "s|AIDER_DESK_WEBSITE = 'https://aiderdesk.hotovo.com'|AIDER_DESK_WEBSITE = 'https://hyperspace.ng'|g" "$file"
+                git add "$file"
+                ;;
+                
+              src/renderer/src/components/settings/AboutSettings.tsx)
+                echo "Resolving AboutSettings.tsx with branding..."
+                git checkout --theirs "$file"
+                sed -i 's/<Section title="AiderDesk">/<Section title="SuperAgent">/g' "$file"
+                git add "$file"
+                ;;
+                
+              src/main/index.ts)
+                echo "Resolving main/index.ts with branding..."
+                git checkout --theirs "$file"
+                sed -i 's/com.hotovo.aider-desk/ng.hyperspace.superagent/g' "$file"
+                git add "$file"
+                ;;
+                
+              build/icon.*|resources/icon.*)
+                echo "Resolving $file by keeping ours (branding)..."
+                git checkout --ours "$file" 2>/dev/null || true
+                git add "$file" 2>/dev/null || true
+                ;;
+                
+              *.ts|*.tsx|*.js|*.jsx|*.css|*.scss)
+                echo "Resolving source file $file by accepting upstream..."
+                git checkout --theirs "$file"
+                git add "$file"
+                ;;
+                
+              *)
+                echo "Unknown conflict in $file - attempting to accept upstream version"
+                if git checkout --theirs "$file" 2>/dev/null; then
+                  git add "$file"
+                  echo "Resolved $file by accepting upstream"
+                else
+                  echo "Could not resolve $file automatically"
+                  RESOLVED_ALL=false
+                fi
+                ;;
+            esac
+          done
+          
+          # Check if all conflicts are resolved
+          REMAINING_CONFLICTS=$(git diff --name-only --diff-filter=U | wc -l)
+          
+          if [ "$REMAINING_CONFLICTS" -eq 0 ] && [ "$RESOLVED_ALL" = true ]; then
+            echo "All conflicts resolved automatically"
+            echo "resolved=true" >> $GITHUB_OUTPUT
+            
+            # Complete the merge
+            git commit -m "Merge upstream/main with automatic conflict resolution"
+            echo "Merge commit created"
+          else
+            echo "Some conflicts could not be resolved automatically"
+            echo "resolved=false" >> $GITHUB_OUTPUT
+            git merge --abort || true
           fi
 
       - name: Restore branding files
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+        if: steps.check.outputs.has_updates == 'true' && (steps.merge.outputs.merge_success == 'true' || steps.resolve-conflicts.outputs.resolved == 'true')
         run: |
           # Restore icons
           cp /tmp/branding-backup/icon.png build/icon.png 2>/dev/null || true
           cp /tmp/branding-backup/icon.ico build/icon.ico 2>/dev/null || true
           cp /tmp/branding-backup/icon.icns build/icon.icns 2>/dev/null || true
-          cp /tmp/branding-backup/icon.png resources/icon.png 2>/dev/null || true
-          cp /tmp/branding-backup/icon.ico resources/icon.ico 2>/dev/null || true
+          cp /tmp/branding-backup/resources-icon.png resources/icon.png 2>/dev/null || true
+          cp /tmp/branding-backup/resources-icon.ico resources/icon.ico 2>/dev/null || true
           
-          # Restore branding in package.json
-          UPSTREAM_VERSION=$(node -p "require('./package.json').version")
-          cat package.json | \
-            jq --arg ver "${UPSTREAM_VERSION}-hyperspace" \
-               '.name = "superagent" | 
-                .version = $ver | 
-                .description = "SuperAgent desktop application" | 
-                .author = "Hyperspace <superagent@hyperspace.ng>" | 
-                .homepage = "https://hyperspace.ng"' > package.json.tmp
-          mv package.json.tmp package.json
-          
-          echo "Branding restored with version: ${UPSTREAM_VERSION}-hyperspace"
+          echo "Icon files restored"
 
-      - name: Restore branding in source files
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+      - name: Apply branding to package.json
+        if: steps.check.outputs.has_updates == 'true' && (steps.merge.outputs.merge_success == 'true' || steps.resolve-conflicts.outputs.resolved == 'true')
         run: |
-          # Restore key branding strings
+          # Get upstream version and apply branding
+          UPSTREAM_VERSION=$(node -p "require('./package.json').version.replace(/-hyperspace$/, '').replace(/-dev$/, '')")
+          
+          node -e "
+            const fs = require('fs');
+            const pkg = require('./package.json');
+            
+            pkg.name = 'superagent';
+            pkg.version = '${UPSTREAM_VERSION}-hyperspace';
+            pkg.description = 'SuperAgent desktop application';
+            pkg.author = 'Hyperspace <superagent@hyperspace.ng>';
+            pkg.homepage = 'https://hyperspace.ng';
+            pkg.repository = {
+              type: 'git',
+              url: 'https://github.com/DrOlu/aider-desk.git'
+            };
+            
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('package.json rebranded to version:', pkg.version);
+          "
+          
+          echo "Package.json branding applied"
+
+      - name: Apply branding to source files
+        if: steps.check.outputs.has_updates == 'true' && (steps.merge.outputs.merge_success == 'true' || steps.resolve-conflicts.outputs.resolved == 'true')
+        run: |
+          # HTML files
           sed -i 's/<title>AiderDesk<\/title>/<title>SuperAgent<\/title>/g' src/renderer/index.html || true
           sed -i 's/Starting AiderDesk/Starting SuperAgent/g' src/renderer/progress.html || true
+          sed -i 's/AiderDesk/SuperAgent/g' src/renderer/progress.html || true
+          
+          # Settings component
           sed -i 's/<Section title="AiderDesk">/<Section title="SuperAgent">/g' src/renderer/src/components/settings/AboutSettings.tsx || true
+          
+          # Constants
           sed -i "s/AIDER_DESK_TITLE = 'AiderDesk'/AIDER_DESK_TITLE = 'SuperAgent'/g" src/main/constants.ts || true
           sed -i "s|AIDER_DESK_WEBSITE = 'https://aiderdesk.hotovo.com'|AIDER_DESK_WEBSITE = 'https://hyperspace.ng'|g" src/main/constants.ts || true
+          
+          # App identifier
           sed -i 's/com.hotovo.aider-desk/ng.hyperspace.superagent/g' src/main/index.ts || true
           
-          echo "Source file branding restored"
+          echo "Source file branding applied"
 
-      - name: Commit changes
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+      - name: Commit branding changes
+        if: steps.check.outputs.has_updates == 'true' && (steps.merge.outputs.merge_success == 'true' || steps.resolve-conflicts.outputs.resolved == 'true')
         run: |
           git add -A
           if git diff --staged --quiet; then
-            echo "No changes to commit"
+            echo "No additional changes to commit"
           else
-            UPSTREAM_VERSION=$(node -p "require('./package.json').version")
-            git commit -m "Sync with upstream and restore SuperAgent branding (${UPSTREAM_VERSION})"
+            VERSION=$(node -p "require('./package.json').version")
+            git commit -m "Sync with upstream and restore SuperAgent branding (${VERSION})"
           fi
 
       - name: Push changes
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+        if: steps.check.outputs.has_updates == 'true' && (steps.merge.outputs.merge_success == 'true' || steps.resolve-conflicts.outputs.resolved == 'true')
         run: |
           git push origin main
 
       - name: Get version for build
         id: version
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'true'
+        if: steps.check.outputs.has_updates == 'true' && (steps.merge.outputs.merge_success == 'true' || steps.resolve-conflicts.outputs.resolved == 'true')
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Create issue on merge conflict
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'false'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_TOKEN }}
-          script: |
-            const title = '⚠️ Upstream Sync Failed - Manual Intervention Required';
-            const body = `## Upstream Sync Conflict
-            
-            The automatic sync from [hotovo/aider-desk](https://github.com/hotovo/aider-desk) failed due to merge conflicts.
-            
-            ### Action Required
-            
-            Please manually resolve the conflicts:
-            
-            \`\`\`bash
-            git fetch upstream
-            git merge upstream/main
-            # Resolve conflicts
-            # Restore branding
-            git push origin main
-            \`\`\`
-            
-            ### Upstream Changes
-            
-            Check the [upstream commits](https://github.com/hotovo/aider-desk/commits/main) for recent changes.
-            
-            ---
-            *This issue was automatically created by the sync workflow.*`;
-            
-            const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'sync-conflict'
-            });
-            
-            if (issues.data.length === 0) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: title,
-                body: body,
-                labels: ['sync-conflict']
-              });
-            }
+      - name: Set final status
+        id: final-status
+        run: |
+          if [ "${{ steps.check.outputs.has_updates }}" != "true" ]; then
+            echo "synced=false" >> $GITHUB_OUTPUT
+            echo "No updates to sync"
+          elif [ "${{ steps.merge.outputs.merge_success }}" == "true" ] || [ "${{ steps.resolve-conflicts.outputs.resolved }}" == "true" ]; then
+            echo "synced=true" >> $GITHUB_OUTPUT
+            echo "Sync successful"
+          else
+            echo "synced=false" >> $GITHUB_OUTPUT
+            echo "Sync failed"
+          fi
+
+      - name: Notify on unresolvable conflicts
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_success == 'false' && steps.resolve-conflicts.outputs.resolved != 'true'
+        run: |
+          echo "::error::Merge conflicts could not be resolved automatically. Manual intervention required."
+          
+          # Send Telegram notification (if secrets are configured)
+          if [ -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ] && [ -n "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+              -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -d parse_mode="Markdown" \
+              -d text="⚠️ *SuperAgent Sync Failed*%0A%0AMerge conflicts could not be resolved automatically.%0A%0A[View Workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
 
       - name: Summary
         run: |
           echo "## Sync Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
           if [ "${{ steps.check.outputs.has_updates }}" == "false" ]; then
             echo "✅ No upstream updates available" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ steps.merge.outputs.merge_success }}" == "true" ]; then
-            echo "✅ Successfully synced with upstream and restored branding" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Successfully synced with upstream (clean merge)" >> $GITHUB_STEP_SUMMARY
+            echo "🚀 Build will be triggered automatically" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.resolve-conflicts.outputs.resolved }}" == "true" ]; then
+            echo "✅ Successfully synced with upstream (conflicts auto-resolved)" >> $GITHUB_STEP_SUMMARY
             echo "🚀 Build will be triggered automatically" >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ Merge conflicts detected - manual intervention required" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Merge conflicts could not be resolved automatically" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Manual Steps Required" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "git fetch upstream" >> $GITHUB_STEP_SUMMARY
+            echo "git merge upstream/main" >> $GITHUB_STEP_SUMMARY
+            echo "# Resolve conflicts manually" >> $GITHUB_STEP_SUMMARY
+            echo "git push origin main" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
 
   build:
@@ -197,7 +370,7 @@ jobs:
     
     steps:
       - name: Wait for release assets
-        run: sleep 30
+        run: sleep 60
 
       - name: Find and publish draft release
         env:
@@ -206,7 +379,7 @@ jobs:
           # Get the latest draft release
           RELEASE_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases" | \
-            jq -r '[.[] | select(.draft == true)] | .[0].id')
+            jq -r '[.[] | select(.draft == true)] | sort_by(.created_at) | reverse | .[0].id')
           
           if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
             echo "Publishing release ID: $RELEASE_ID"
@@ -214,10 +387,21 @@ jobs:
               -H "Authorization: token $GH_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID" \
-              -d '{"draft":false}'
+              -d '{"draft":false,"make_latest":"true"}'
             echo "✅ Release published!"
           else
             echo "No draft release found to publish"
+          fi
+
+      - name: Send success notification
+        if: always()
+        run: |
+          VERSION="${{ needs.sync.outputs.version }}"
+          if [ -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ] && [ -n "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+              -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -d parse_mode="Markdown" \
+              -d text="✅ *SuperAgent ${VERSION} Released*%0A%0ANew version synced from upstream and published.%0A%0A[Download](https://github.com/${{ github.repository }}/releases/latest)"
           fi
 
       - name: Summary
