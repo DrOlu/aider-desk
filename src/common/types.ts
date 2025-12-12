@@ -357,6 +357,7 @@ export interface AgentProfile {
   useSubagents: boolean;
   useTaskTools: boolean;
   useMemoryTools: boolean;
+  useSkillsTools: boolean;
   customInstructions: string;
   subagent: SubagentConfig;
   isSubagent?: boolean; // flag to indicate if this profile is being used as a subagent
@@ -383,6 +384,8 @@ export const THEMES = [
   'serenity',
   'cappuccino',
   'fresh',
+  'botanical-garden',
+  'botanical-garden-dark',
 ] as const;
 export type Theme = (typeof THEMES)[number];
 
