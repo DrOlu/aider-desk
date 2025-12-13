@@ -541,6 +541,13 @@ const api: ApplicationAPI = {
   updateAgentProfile: (profile, baseDir) => ipcRenderer.invoke('update-agent-profile', profile, baseDir),
   deleteAgentProfile: (profileId, baseDir) => ipcRenderer.invoke('delete-agent-profile', profileId, baseDir),
   updateAgentProfilesOrder: (agentProfiles) => ipcRenderer.invoke('update-agent-profiles-order', agentProfiles),
+
+  // Memory operations
+  listAllMemories: () => ipcRenderer.invoke('list-all-memories'),
+  deleteMemory: (id) => ipcRenderer.invoke('delete-memory', id),
+  deleteProjectMemories: (projectId) => ipcRenderer.invoke('delete-project-memories', projectId),
+  getMemoryEmbeddingProgress: () => ipcRenderer.invoke('get-memory-embedding-progress'),
+
   addAgentProfilesUpdatedListener: (callback) => {
     const listener = (_, data) => callback(data);
     ipcRenderer.on('agent-profiles-updated', listener);

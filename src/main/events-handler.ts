@@ -25,12 +25,14 @@ import {
   VersionsInfo,
   VoiceSession,
   AgentProfile,
+  MemoryEntry,
 } from '@common/types';
 import { normalizeBaseDir } from '@common/utils';
 
 import type { BrowserWindow } from 'electron';
 
 import { McpManager, AgentProfileManager } from '@/agent';
+import { MemoryManager } from '@/memory/memory-manager';
 import { ModelManager } from '@/models';
 import { ProjectManager } from '@/project';
 import { CloudflareTunnelManager } from '@/server';
@@ -58,6 +60,7 @@ export class EventsHandler {
     private cloudflareTunnelManager: CloudflareTunnelManager,
     private eventManager: EventManager,
     private readonly agentProfileManager: AgentProfileManager,
+    private readonly memoryManager: MemoryManager,
   ) {}
 
   loadSettings(): SettingsData {
@@ -71,8 +74,7 @@ export class EventsHandler {
     this.mcpManager.settingsChanged(oldSettings, newSettings);
     void this.projectManager.settingsChanged(oldSettings, newSettings);
     this.telemetryManager.settingsChanged(oldSettings, newSettings);
-
-    // Memory configuration changes require restart to take effect
+    void this.memoryManager.settingsChanged(oldSettings, newSettings);
 
     return this.store.getSettings();
   }
@@ -810,5 +812,21 @@ export class EventsHandler {
 
   async updateAgentProfilesOrder(agentProfiles: AgentProfile[]) {
     await this.agentProfileManager.updateAgentProfilesOrder(agentProfiles);
+  }
+
+  async listAllMemories(): Promise<MemoryEntry[]> {
+    return await this.memoryManager.getAllMemories();
+  }
+
+  async deleteMemory(id: string): Promise<boolean> {
+    return await this.memoryManager.deleteMemory(id);
+  }
+
+  async deleteProjectMemories(projectId: string): Promise<number> {
+    return await this.memoryManager.deleteMemoriesForProject(projectId);
+  }
+
+  getMemoryEmbeddingProgress() {
+    return this.memoryManager.getProgress();
   }
 }
