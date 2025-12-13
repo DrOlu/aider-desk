@@ -7,6 +7,11 @@
 - added Use memory tools and Use task tools quick actions to Agent selector
 - optimized agent profile update and related event handling
 - added Skill tools for activating skills in Agent mode
+- properly passing max_tokens when using Aider modes
+- architect model is now correctly set for a task
+- properly reading API_KEY environment variables for some providers when using Aider modes
+- updated link to telemetry docs
+- user message correctly stored before Aider returns response in case of interrupt or error
 
 ## [0.43.0]
 
