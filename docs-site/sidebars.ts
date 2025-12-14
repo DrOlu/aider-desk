@@ -35,6 +35,8 @@ const sidebars: SidebarsConfig = {
         'features/tasks',
         'features/git-worktrees',
         'features/custom-commands',
+        'features/memory',
+        'features/skills',
         'features/web-scraping',
         'features/voice-control',
         'features/compact',
