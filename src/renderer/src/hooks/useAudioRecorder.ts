@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { isGeminiProvider, isOpenAiProvider } from '@common/agent';
 
 import { useApi } from '@/contexts/ApiContext';
 import { useModelProviders } from '@/contexts/ModelProviderContext';
@@ -91,15 +92,32 @@ export const useAudioRecorder = (): UseAudioRecorderType => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: false,
-      });
+      // Create voice session first.
+      // On macOS this is also where we trigger the OS-level microphone permission prompt.
+      const session = await api.createVoiceSession(voiceProviderProfile);
+
+      const inputDeviceId = isOpenAiProvider(voiceProviderProfile.provider)
+        ? voiceProviderProfile.provider.voice?.inputDeviceId
+        : isGeminiProvider(voiceProviderProfile.provider)
+          ? voiceProviderProfile.provider.voice?.inputDeviceId
+          : undefined;
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true,
+          video: false,
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to get user media with input device id, falling back to default:', e);
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
+      }
       streamRef.current = stream;
       setMediaStream(stream);
-
-      // Create voice session
-      const session = await api.createVoiceSession(voiceProviderProfile);
 
       // Create and configure voice provider
       const voiceProvider = createVoiceProvider(voiceProviderProfile.provider.name);
@@ -110,6 +128,7 @@ export const useAudioRecorder = (): UseAudioRecorderType => {
         token: session.ephemeralToken,
         model: session.model,
         mediaStream: stream,
+        idleTimeoutMs: session.idleTimeoutMs,
         onTranscription: handleTranscription,
         onError: handleError,
         onSessionStateChange: handleSessionStateChange,
