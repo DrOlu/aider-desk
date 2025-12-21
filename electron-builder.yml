@@ -1,14 +1,18 @@
-appId: ng.hyperspace.superagent
-productName: SuperAgent
+appId: com.hotovo.aider-desk
+productName: aider-desk
 directories:
   buildResources: build
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!resources/*'
+  - '!docs-site/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!.aider-desk/*'
+  - '!llms.txt'
 extraResources:
   - from: ./resources/connector
     to: connector
@@ -23,7 +27,7 @@ asarUnpack:
   - '**/node_modules/@img/**/*'
 beforePack: scripts/before-pack.js
 win:
-  executableName: superagent
+  executableName: aider-desk
   icon: resources/icon.png
   extraResources:
     - from: ./resources/win
@@ -47,7 +51,7 @@ mac:
   extendInfo:
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
   gatekeeperAssess: false
-  notarize: false
+  notarize: true
   extraResources:
     - from: ./resources/macos
       to: macos
@@ -57,10 +61,10 @@ dmg:
   artifactName: ${name}-${version}-macos-${arch}.${ext}
 linux:
   target:
-    - AppImage
-    - deb
-    - rpm
-  maintainer: Hyperspace
+    - target: AppImage
+    - target: deb
+    - target: rpm
+  maintainer: Hotovo
   category: Utility
   extraResources:
     - from: ./resources/linux
@@ -68,14 +72,12 @@ linux:
       filter:
         - '**/*'
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${name}-${version}-${arch}.${ext}
 deb:
   compression: 'gz'
 npmRebuild: true
 publish:
   provider: github
-  owner: DrOlu
-  repo: aider-desk
   releaseType: draft
   vPrefixedTagName: true
   publishAutoUpdate: true

@@ -14,6 +14,8 @@
 - not switching mode when switching other parameters in browser
 - added automatic file detection from prompts with interactive confirmation to add detected files to context in Aider modes
 - improved project file listing to respect .gitignore patterns in non-git mode
+- propagating "Retrying" message from Aider
+- paste action also works for non files in Add File dialog
 
 ## [0.44.0]
 
