@@ -1,6 +1,6 @@
 {
   "name": "superagent",
-  "version": "0.45.0-hyperspace",
+  "version": "0.46.0-hyperspace",
   "description": "SuperAgent desktop application",
   "main": "./out/main/index.js",
   "author": "Hyperspace <superagent@hyperspace.ng>",
