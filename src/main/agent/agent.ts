@@ -42,7 +42,6 @@ import { TOOL_GROUP_NAME_SEPARATOR } from '@common/tools';
 import { createPowerToolset } from './tools/power';
 import { createTodoToolset } from './tools/todo';
 import { createTasksToolset } from './tools/tasks';
-import { getSystemPrompt } from './prompts';
 import { createAiderToolset } from './tools/aider';
 import { createHelpersToolset } from './tools/helpers';
 import { createMemoryToolset } from './tools/memory';
@@ -53,6 +52,7 @@ import { ANSWER_RESPONSE_START_TAG, extractPromptContextFromToolResult, THINKING
 import { extractReasoningMiddleware } from './middlewares/extract-reasoning-middleware';
 
 import { MemoryManager } from '@/memory/memory-manager';
+import { PromptsManager } from '@/prompts';
 import { AIDER_DESK_PROJECT_RULES_DIR } from '@/constants';
 import { Task } from '@/task';
 import { Store } from '@/store';
@@ -77,6 +77,7 @@ export class Agent {
     private readonly modelManager: ModelManager,
     private readonly telemetryManager: TelemetryManager,
     private readonly memoryManager: MemoryManager,
+    private readonly promptsManager: PromptsManager,
   ) {}
 
   private async getFilesContentForPrompt(files: ContextFile[], task: Task): Promise<{ textFileContents: string[]; imageParts: ImagePart[] }> {
@@ -645,7 +646,7 @@ export class Agent {
       });
 
       if (!systemPrompt) {
-        systemPrompt = await getSystemPrompt(this.store.getSettings(), task, profile);
+        systemPrompt = await this.promptsManager.getSystemPrompt(this.store.getSettings(), task, profile);
       }
 
       // repairToolCall function that attempts to repair tool calls
@@ -1083,7 +1084,7 @@ export class Agent {
 
       const messages = await this.prepareMessages(task, profile, await task.getContextMessages(), await task.getContextFiles());
       const toolSet = await this.getAvailableTools(task, profile, provider);
-      const systemPrompt = await getSystemPrompt(this.store.getSettings(), task, profile);
+      const systemPrompt = await this.promptsManager.getSystemPrompt(this.store.getSettings(), task, profile);
 
       const cacheControl = this.modelManager.getCacheControl(profile, provider.provider);
 
@@ -1178,15 +1179,22 @@ export class Agent {
       await task.processResponseMessage(message);
     }
 
-    if (toolResults) {
-      // Process successful tool results *after* sending text/reasoning and handling errors
-      for (const toolResult of toolResults) {
-        const [serverName, toolName] = extractServerNameToolName(toolResult.toolName);
-        const toolPromptContext = extractPromptContextFromToolResult(toolResult.output) ?? promptContext;
+    // Process successful tool results *after* sending text/reasoning and handling errors
+    for (let i = 0; i < toolResults.length; i++) {
+      const toolResult = toolResults[i];
+      const [serverName, toolName] = extractServerNameToolName(toolResult.toolName);
+      const toolPromptContext = extractPromptContextFromToolResult(toolResult.output) ?? promptContext;
 
-        // Update the existing tool message with the result
-        task.addToolMessage(toolResult.toolCallId, serverName, toolName, toolResult.input, JSON.stringify(toolResult.output), usageReport, toolPromptContext);
-      }
+      // Update the existing tool message with the result
+      task.addToolMessage(
+        toolResult.toolCallId,
+        serverName,
+        toolName,
+        toolResult.input,
+        JSON.stringify(toolResult.output),
+        i === toolResults.length - 1 ? usageReport : undefined, // Only add usage report to the last tool message
+        toolPromptContext,
+      );
     }
 
     if (!abortSignal?.aborted) {
