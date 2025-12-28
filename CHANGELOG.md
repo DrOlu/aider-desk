@@ -16,6 +16,10 @@
 - correctly showing the rule files based on the current task mode
 - added optional execute argument to create task tool to allow executing it after creation
 - added update memory tool to complement other memory tools
+- added copy button to the bash tool command
+- added ability to disable provider profiles to hide their models
+- added missing endpoint for updating model
+- correctly allowing to run multiple tasks simultaneously in the browser
 
 ## [0.45.1]
 
