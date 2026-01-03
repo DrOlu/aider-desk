@@ -10,6 +10,10 @@
 - added worktree directory important reminder when working in the worktree
 - added shift-click support for selecting task ranges in multiselect mode
 - correctly showing uncut list of uncommited files in the worktree status
+- added task actions based on the task state for easier workflow
+- added task settings page with smart task state and auto-generate task name configuration
+- improved instructions for using memory tools for better utilization
+- added ability to delete memories from the retrieve memory tool message
 
 ## [0.46.0]
 

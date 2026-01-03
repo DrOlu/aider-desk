@@ -85,7 +85,7 @@ export class Task {
   private runPromptResolves: ((value: ResponseCompletedData[]) => void)[] = [];
   private autocompletionAllFiles: string[] | null = null;
   private agentRunResolves: (() => void)[] = [];
-  private git: SimpleGit;
+  private git: SimpleGit | null = null;
 
   private readonly taskDataPath: string;
   private readonly contextManager: ContextManager;
@@ -135,7 +135,6 @@ export class Task {
       this.memoryManager,
       this.promptsManager,
     );
-    this.git = simpleGit(this.project.baseDir);
     this.aiderManager = new AiderManager(this, this.store, this.modelManager, this.eventManager, () => this.connectors);
 
     void this.loadTaskData();
@@ -196,10 +195,6 @@ export class Task {
 
     // Migrate missing task-level settings from project settings
     await this.migrateFromProjectSettings();
-
-    if (await fileExists(this.getTaskDir())) {
-      this.git = simpleGit(this.getTaskDir());
-    }
   }
 
   /**
@@ -337,7 +332,9 @@ export class Task {
         this.task.workingMode = 'local';
       }
     }
-    this.git = simpleGit(this.getTaskDir());
+    if (await fileExists(this.getTaskDir())) {
+      this.git = simpleGit(this.getTaskDir());
+    }
 
     await this.loadContext();
     await Promise.all([this.aiderManager.start(), this.updateContextInfo()]);
@@ -357,7 +354,7 @@ export class Task {
 
     await this.init();
 
-    const mode = this.task.currentMode || this.store.getProjectSettings(this.project.baseDir).currentMode;
+    const mode = this.getCurrentMode();
     return {
       messages: this.contextManager.getContextMessagesData(),
       files: await this.getContextFiles(mode === 'agent'),
@@ -556,8 +553,6 @@ export class Task {
     this.addUserMessage(promptContext.id, prompt);
     this.addLogMessage('loading');
 
-    await this.saveTask({ state: DefaultTaskState.InProgress });
-
     this.telemetryManager.captureRunPrompt(mode);
     // Generate promptContext for this run
 
@@ -612,14 +607,17 @@ export class Task {
       logger.info('Aider prompt blocked by hook');
       return [];
     }
-    prompt = aiderHookResult.event.prompt;
-    mode = aiderHookResult.event.mode;
-    await this.aiderManager.waitForStart();
 
     await this.saveTask({
       name: this.task.name || this.getTaskNameFromPrompt(prompt),
       startedAt: new Date().toISOString(),
+      state: DefaultTaskState.InProgress,
     });
+
+    prompt = aiderHookResult.event.prompt;
+    mode = aiderHookResult.event.mode;
+
+    await this.aiderManager.waitForStart();
 
     // Detect files in prompt and ask to add them to context (only for aider modes)
     await this.detectAndAddFilesFromPrompt(prompt);
@@ -675,7 +673,7 @@ export class Task {
 
   public async runPromptInAgent(
     profile: AgentProfile,
-    prompt: string,
+    prompt: string | null,
     promptContext: PromptContext = { id: uuidv4() },
     contextMessages?: ContextMessage[],
     contextFiles?: ContextFile[],
@@ -683,14 +681,17 @@ export class Task {
     waitForCurrentAgentToFinish = true,
   ): Promise<ResponseCompletedData[]> {
     await this.hookManager.trigger('onPromptStarted', { prompt, mode: 'agent' }, this, this.project);
-    await this.saveTask({
-      name: this.task.name || this.getTaskNameFromPrompt(prompt),
-      startedAt: new Date().toISOString(),
-    });
 
     if (waitForCurrentAgentToFinish) {
       await this.waitForCurrentAgentToFinish();
     }
+
+    await this.saveTask({
+      name: this.task.name || this.getTaskNameFromPrompt(prompt || ''),
+      startedAt: new Date().toISOString(),
+      state: DefaultTaskState.InProgress,
+    });
+
     const agentMessages = await this.agent.runAgent(this, profile, prompt, promptContext, contextMessages, contextFiles, systemPrompt);
     this.resolveAgentRunPromises();
     if (agentMessages.length > 0) {
@@ -702,15 +703,16 @@ export class Task {
       });
     }
 
-    void this.sendRequestContextInfo();
-    void this.sendWorktreeIntegrationStatusUpdated();
-    this.notifyIfEnabled('Prompt finished', 'Your Agent has finished the task.');
-
     await this.hookManager.trigger('onPromptFinished', { responses: [] }, this, this.project);
 
     if (this.task.state === DefaultTaskState.InProgress) {
       // Determine task state based on the last assistant message
-      const state = await this.determineTaskState(agentMessages);
+      const settings = this.store.getSettings();
+      let state: string | null = DefaultTaskState.ReadyForReview;
+
+      if (settings.taskSettings.smartTaskState) {
+        state = await this.determineTaskState(agentMessages);
+      }
 
       await this.saveTask({
         completedAt: new Date().toISOString(),
@@ -718,29 +720,34 @@ export class Task {
       });
     }
 
+    void this.sendRequestContextInfo();
+    void this.sendWorktreeIntegrationStatusUpdated();
+    this.notifyIfEnabled('Prompt finished', 'Your Agent has finished the task.');
+
     return [];
   }
 
   private getTaskNameFromPrompt(prompt: string): string {
-    const saveFallbackName = () => {
-      const fallbackName = prompt.trim().split(' ').slice(0, 5).join(' ');
-      void this.saveTask({ name: fallbackName });
-    };
+    const fallbackName = prompt.trim().split(' ').slice(0, 5).join(' ');
 
-    this.generateTaskNameInBackground(prompt)
-      .then((taskName) => {
-        if (taskName) {
-          void this.saveTask({ name: taskName });
-        } else {
-          saveFallbackName();
-        }
-      })
-      .catch((error) => {
-        logger.warn('Failed to generate task name:', error);
-        saveFallbackName();
-      });
-
-    return '<<generating>>';
+    const settings = this.store.getSettings();
+    if (settings.taskSettings.autoGenerateTaskName) {
+      this.generateTaskNameInBackground(prompt)
+        .then((taskName) => {
+          if (taskName) {
+            void this.saveTask({ name: taskName });
+          } else {
+            void this.saveTask({ name: fallbackName });
+          }
+        })
+        .catch((error) => {
+          logger.warn('Failed to generate task name:', error);
+          void this.saveTask({ name: fallbackName });
+        });
+      return '<<generating>>';
+    } else {
+      return fallbackName;
+    }
   }
 
   private async generateTaskNameInBackground(prompt: string): Promise<string | null> {
@@ -1113,7 +1120,7 @@ export class Task {
   public async addToGit(absolutePath: string, promptContext?: PromptContext): Promise<void> {
     try {
       // Add the new file to git staging
-      await this.git.add(absolutePath);
+      await this.git?.add(absolutePath);
       await this.updateAutocompletionData(undefined, true);
     } catch (gitError) {
       const gitErrorMessage = gitError instanceof Error ? gitError.message : String(gitError);
@@ -1123,7 +1130,7 @@ export class Task {
   }
 
   private async sendContextFilesUpdated() {
-    const mode = this.task.currentMode || this.store.getProjectSettings(this.project.baseDir).currentMode;
+    const mode = this.getCurrentMode();
     const allFiles = await this.getContextFiles(mode === 'agent');
 
     this.eventManager.sendContextFilesUpdated(this.project.baseDir, this.taskId, allFiles);
@@ -1163,7 +1170,7 @@ export class Task {
       sendToConnectors = false;
       try {
         // Get the Git root directory to handle monorepo scenarios
-        const gitRoot = await this.git.revparse(['--show-toplevel']);
+        const gitRoot = (await this.git?.revparse(['--show-toplevel'])) || this.project.baseDir;
         const gitRootDir = simpleGit(gitRoot);
 
         // Get the current HEAD commit hash before undoing
@@ -1849,6 +1856,45 @@ export class Task {
     }
   }
 
+  public async resumeTask() {
+    logger.info('Resuming task:', { baseDir: this.project.baseDir, taskId: this.taskId });
+
+    const mode = this.getCurrentMode();
+
+    if (mode === 'agent') {
+      const profile = await this.getTaskAgentProfile();
+      if (!profile) {
+        logger.error('No active Agent profile found for resume');
+        this.addLogMessage('error', 'No active Agent profile found');
+        return;
+      }
+
+      logger.info('Resuming agent task...');
+      this.addLogMessage('loading', 'Resuming task...');
+
+      void this.runPromptInAgent(profile, null);
+    } else {
+      // In other modes, check if last message is user
+      const contextMessages = await this.contextManager.getContextMessages();
+      const lastMessage = contextMessages[contextMessages.length - 1];
+
+      if (lastMessage && lastMessage.role === MessageRole.User) {
+        // Last message is from user, redo it
+        logger.info('Last message is from user, redoing prompt');
+        this.addLogMessage('loading', 'Resuming task...');
+        void this.redoLastUserPrompt(mode);
+      } else {
+        // Last message is not from user, send "Continue" to aider
+        logger.info('Last message is not from user, sending Continue prompt');
+        void this.runPrompt('Continue', mode, false);
+      }
+    }
+  }
+
+  private getCurrentMode() {
+    return this.task.currentMode || this.store.getProjectSettings(this.project.baseDir).currentMode || 'agent';
+  }
+
   private async reloadConnectorMessages() {
     await this.runCommand('clear', false);
     this.contextManager.toConnectorMessages().forEach((message) => {
@@ -2336,7 +2382,7 @@ ${error.stderr}`,
     };
 
     this.addUserMessage(promptContext.id, prompt);
-    this.addLogMessage('loading');
+    this.addLogMessage('loading', 'Executing custom command...');
 
     try {
       if (mode === 'agent') {
