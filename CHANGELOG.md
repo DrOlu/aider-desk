@@ -14,6 +14,10 @@
 - added task settings page with smart task state and auto-generate task name configuration
 - improved instructions for using memory tools for better utilization
 - added ability to delete memories from the retrieve memory tool message
+- added optional state input argument to list tasks tool to filter by state
+- added optional format for fetch tool to fetch markdown, html or raw content
+- matching for full path when checking if file exists in the context before asking to add it
+- updated default temperature for Z.AI models to 0.7 for better results
 
 ## [0.46.0]
 
