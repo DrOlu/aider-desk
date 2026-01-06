@@ -863,8 +863,6 @@ export class Task {
       logger.info('Determining task state:', {
         baseDir: this.project.baseDir,
         taskId: this.taskId,
-        wrappedMessage,
-        answer,
       });
 
       const trimmedAnswer = answer.trim();
@@ -1637,6 +1635,20 @@ export class Task {
       logger.debug('Could not read global rules directory', { error });
     }
 
+    // Include AGENTS.md from project root if it exists
+    const agentsFilePath = path.join(this.project.baseDir, 'AGENTS.md');
+    try {
+      await fs.access(agentsFilePath);
+      ruleFiles.push({
+        path: 'AGENTS.md',
+        readOnly: true,
+        source: 'project-rule',
+      });
+    } catch (error) {
+      // AGENTS.md doesn't exist, which is fine
+      logger.debug('AGENTS.md not found in project root', { error });
+    }
+
     // Get project rule files
     try {
       const projectRulesDir = path.join(this.project.baseDir, AIDER_DESK_PROJECT_RULES_DIR);
@@ -1683,20 +1695,6 @@ export class Task {
           });
         }
       }
-    }
-
-    // Include AGENTS.md from project root if it exists
-    const agentsFilePath = path.join(this.project.baseDir, 'AGENTS.md');
-    try {
-      await fs.access(agentsFilePath);
-      ruleFiles.push({
-        path: 'AGENTS.md',
-        readOnly: true,
-        source: 'project-rule',
-      });
-    } catch (error) {
-      // AGENTS.md doesn't exist, which is fine
-      logger.debug('AGENTS.md not found in project root', { error });
     }
 
     return ruleFiles;
