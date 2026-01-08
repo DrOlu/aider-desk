@@ -176,6 +176,7 @@ export interface ToolData {
   response?: string;
   usageReport?: UsageReportData;
   promptContext?: PromptContext;
+  finished?: boolean;
 }
 
 export interface ContextFilesUpdatedData {
@@ -513,6 +514,7 @@ export enum MemoryEmbeddingProvider {
 export interface TaskSettings {
   smartTaskState: boolean;
   autoGenerateTaskName: boolean;
+  showTaskStateActions: boolean;
 }
 
 export interface MemoryConfig {

@@ -10,6 +10,9 @@
 - optimized performance when switching between tasks and projects
 - added /task-info command for task information
 - added favicon to browser clients
+- properly using the compacting threshold from the task when updated
+- added configuration option to hide task state actions
+- added output streaming to bash power tool during the execution
 
 ## [0.47.0]
 
