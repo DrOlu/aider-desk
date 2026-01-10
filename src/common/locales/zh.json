@@ -346,6 +346,9 @@
     "apiKey": "API 密钥",
     "modelPlaceholder": "例如 anthropic/claude-3.7-sonnet"
   },
+  "opencode": {
+    "apiKey": "API 密钥"
+  },
   "requesty": {
     "apiKey": "API 密钥",
     "modelPlaceholder": "例如 claude-4-sonnet"
@@ -368,6 +371,7 @@
     "minimax": "Minimax",
     "ollama": "Ollama",
     "openai": "OpenAI",
+    "opencode": "OpenCode ZEN",
     "openai-compatible": "OpenAI Compatible",
     "openrouter": "OpenRouter",
     "requesty": "Requesty",
@@ -1340,7 +1344,8 @@
     "deleteSelectedConfirm": "您确定要删除 {{count}} 个选中的任务吗？",
     "archiveSelectedConfirm": "您确定要归档 {{count}} 个选中的任务吗？",
     "unarchiveSelectedConfirm": "您确定要取消归档 {{count}} 个选中的任务吗？",
-    "generatingName": "正在生成名称..."
+    "generatingName": "正在生成名称...",
+    "changeState": "更改状态"
   },
   "taskInfo": {
     "createdAt": "创建于",
